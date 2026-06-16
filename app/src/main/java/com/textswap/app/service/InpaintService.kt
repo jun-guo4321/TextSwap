@@ -43,8 +43,18 @@ object InpaintService {
     // ── AI: ONNX Runtime + LaMa ──
 
     private fun aiInpaint(bitmap: Bitmap, rect: Rect): Bitmap {
-        val env = ai.onnxruntime.OrtEnvironment.getEnvironment()
-        val session = env.createSession(TextSwapApp.instance.assets, "models/lama_tiny.onnx")
+        val env = com.microsoft.onnxruntime.OrtEnvironment.getEnvironment()
+        val session = env.createSession(
+            TextSwapApp.instance.assets.openFd("models/lama_tiny.onnx").use { fd ->
+                val buffer = java.nio.ByteBuffer.allocateDirect(fd.length.toInt())
+                java.io.FileInputStream(fd.fileDescriptor).channel.use { ch ->
+                    ch.position(fd.startOffset)
+                    ch.read(buffer)
+                }
+                buffer.rewind()
+                buffer
+            }
+        )
 
         // 裁剪区域（含上下文）
         val margin = 32
@@ -77,20 +87,23 @@ object InpaintService {
             for (x in rx until min(rx + rw, inSize))
                 maskData[y * inSize + x] = 1f
 
-        val imgTensor = ai.onnxruntime.OnnxTensor.createTensor(env, imgData,
+        val imgTensor = com.microsoft.onnxruntime.OnnxTensor.createTensor(env, imgData,
             longArrayOf(1, 3, inSize.toLong(), inSize.toLong()))
-        val maskTensor = ai.onnxruntime.OnnxTensor.createTensor(env, maskData,
+        val maskTensor = com.microsoft.onnxruntime.OnnxTensor.createTensor(env, maskData,
             longArrayOf(1, 1, inSize.toLong(), inSize.toLong()))
 
-        val output = session.run(mapOf("image" to imgTensor, "mask" to maskTensor))
-        val outTensor = output.use { it[0].value as Array<Array<Array<FloatArray>>> }
+        val inputs = mapOf("image" to imgTensor, "mask" to maskTensor)
+        val output = session.run(inputs)
+        val outRaw = output.use { result ->
+            result.getValue("output").value as Array<Array<Array<FloatArray>>>
+        }
 
         // 重建输出 bitmap
         val outPx = IntArray(inSize * inSize)
         for (y in 0 until inSize) for (x in 0 until inSize) {
-            val r = ((outTensor[0][0][y][x] + 1f) * 127.5f).toInt().coerceIn(0, 255)
-            val g = ((outTensor[0][1][y][x] + 1f) * 127.5f).toInt().coerceIn(0, 255)
-            val b = ((outTensor[0][2][y][x] + 1f) * 127.5f).toInt().coerceIn(0, 255)
+            val r = ((outRaw[0][0][y][x] + 1f) * 127.5f).toInt().coerceIn(0, 255)
+            val g = ((outRaw[0][1][y][x] + 1f) * 127.5f).toInt().coerceIn(0, 255)
+            val b = ((outRaw[0][2][y][x] + 1f) * 127.5f).toInt().coerceIn(0, 255)
             outPx[y * inSize + x] = Color.rgb(r, g, b)
         }
         val outBmp = Bitmap.createBitmap(outPx, inSize, inSize, Bitmap.Config.ARGB_8888)
