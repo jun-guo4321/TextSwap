@@ -43,19 +43,16 @@ object InpaintService {
     // ── AI: ONNX Runtime + LaMa ──
 
     private fun aiInpaint(bitmap: Bitmap, rect: Rect): Bitmap {
+        val ctx = TextSwapApp.instance
+        // Copy model from assets to cache for createSession(String)
+        val modelFile = java.io.File(ctx.cacheDir, "lama_tiny.onnx")
+        if (!modelFile.exists()) {
+            ctx.assets.open("models/lama_tiny.onnx").use { input ->
+                modelFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
         val env = ai.onnxruntime.OrtEnvironment.getEnvironment()
-        val session = env.createSession(
-            TextSwapApp.instance.assets.openFd("models/lama_tiny.onnx").use { fd ->
-                val buffer = java.nio.ByteBuffer.allocateDirect(fd.length.toInt())
-                java.io.FileInputStream(fd.fileDescriptor).channel.use { ch ->
-                    ch.position(fd.startOffset)
-                    ch.read(buffer)
-                }
-                buffer.rewind()
-                buffer
-            },
-            ai.onnxruntime.OrtSession.SessionOptions()
-        )
+        val session = env.createSession(modelFile.absolutePath, ai.onnxruntime.OrtSession.SessionOptions())
 
         // 裁剪区域（含上下文）
         val margin = 32
@@ -90,10 +87,10 @@ object InpaintService {
             for (x in rx until min(rx + rw, inSize))
                 maskData[y * inSize + x] = 1f
 
-        val imgTensor = ai.onnxruntime.OnnxTensor.createTensor(env, imgData,
-            longArrayOf(1, 3, inSize.toLong(), inSize.toLong()))
-        val maskTensor = ai.onnxruntime.OnnxTensor.createTensor(env, maskData,
-            longArrayOf(1, 1, inSize.toLong(), inSize.toLong()))
+        val imgTensor = ai.onnxruntime.OnnxTensor.createTensor(env,
+            java.nio.FloatBuffer.wrap(imgData), longArrayOf(1, 3, inSize.toLong(), inSize.toLong()))
+        val maskTensor = ai.onnxruntime.OnnxTensor.createTensor(env,
+            java.nio.FloatBuffer.wrap(maskData), longArrayOf(1, 1, inSize.toLong(), inSize.toLong()))
 
         val inputs = mapOf("image" to imgTensor, "mask" to maskTensor)
         val result = session.run(inputs)
