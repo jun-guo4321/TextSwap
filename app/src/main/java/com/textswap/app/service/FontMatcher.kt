@@ -85,7 +85,7 @@ object FontMatcher {
 
     private fun sampleTextColor(bmp: Bitmap, rect: Rect): Int {
         val counts = mutableMapOf<Int, Int>()
-        val sx = maxOf(1, rect.width() / 8); val sy = maxOf(1, rect.height() / 4)
+        val sx = maxOf(1, (rect.right - rect.left) / 8); val sy = maxOf(1, (rect.bottom - rect.top) / 4)
         for (y in rect.top until rect.bottom step sy)
             for (x in rect.left until rect.right step sx) {
                 if (x >= bmp.width || y >= bmp.height) continue
