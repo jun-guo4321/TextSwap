@@ -63,7 +63,7 @@ object InpaintService {
             min(bitmap.width, rect.right + margin), min(bitmap.height, rect.bottom + margin)
         )
         val crop = Bitmap.createBitmap(bitmap, cropRect.left, cropRect.top,
-            cropRect.width(), cropRect.height())
+            cropRect.right - cropRect.left, cropRect.bottom - cropRect.top)
 
         val inSize = 256
         val scaled = Bitmap.createScaledBitmap(crop, inSize, inSize, true)
@@ -79,10 +79,12 @@ object InpaintService {
 
         // mask tensor: [1,1,256,256] 文字区域=1
         val maskData = FloatArray(inSize * inSize)
-        val rx = ((rect.left - cropRect.left).toFloat() / crop.width() * inSize).toInt()
-        val ry = ((rect.top - cropRect.top).toFloat() / crop.height() * inSize).toInt()
-        val rw = (rect.width().toFloat() / crop.width() * inSize).toInt().coerceAtLeast(2)
-        val rh = (rect.height().toFloat() / crop.height() * inSize).toInt().coerceAtLeast(2)
+        val cropW = cropRect.right - cropRect.left
+        val cropH = cropRect.bottom - cropRect.top
+        val rx = ((rect.left - cropRect.left).toFloat() / cropW * inSize).toInt()
+        val ry = ((rect.top - cropRect.top).toFloat() / cropH * inSize).toInt()
+        val rw = ((rect.right - rect.left).toFloat() / cropW * inSize).toInt().coerceAtLeast(2)
+        val rh = ((rect.bottom - rect.top).toFloat() / cropH * inSize).toInt().coerceAtLeast(2)
         for (y in ry until min(ry + rh, inSize))
             for (x in rx until min(rx + rw, inSize))
                 maskData[y * inSize + x] = 1f
@@ -93,10 +95,9 @@ object InpaintService {
             longArrayOf(1, 1, inSize.toLong(), inSize.toLong()))
 
         val inputs = mapOf("image" to imgTensor, "mask" to maskTensor)
-        val output = session.run(inputs)
-        val outRaw = output.use { result ->
-            result.getValue("output").value as Array<Array<Array<FloatArray>>>
-        }
+        val result = session.run(inputs)
+        @Suppress("UNCHECKED_CAST")
+        val outRaw = result.getValue("output").value as Array<Array<Array<FloatArray>>>
 
         // 重建输出 bitmap
         val outPx = IntArray(inSize * inSize)
@@ -109,10 +110,11 @@ object InpaintService {
         val outBmp = Bitmap.createBitmap(outPx, inSize, inSize, Bitmap.Config.ARGB_8888)
         val outScaled = Bitmap.createScaledBitmap(outBmp, crop.width, crop.height, true)
 
-        val result = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-        Canvas(result).drawBitmap(outScaled, cropRect.left.toFloat(), cropRect.top.toFloat(), null)
+        val finalResult = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        Canvas(finalResult).drawBitmap(outScaled, cropRect.left.toFloat(), cropRect.top.toFloat(), null)
+        result.close()
         session.close()
-        return result
+        return finalResult
     }
 
     // ── Fallback: 像素采样 ──
@@ -147,8 +149,8 @@ object InpaintService {
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = c; style = Paint.Style.FILL }
             canvas.drawRect(rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat(), p)
         } else {
-            val tc = if (rect.top > 0) bmp.getPixel(rect.centerX(), rect.top - 2) else Color.WHITE
-            val bc = if (rect.bottom < bmp.height - 1) bmp.getPixel(rect.centerX(), rect.bottom + 2) else Color.WHITE
+            val tc = if (rect.top > 0) bmp.getPixel((rect.left + rect.right) / 2, rect.top - 2) else Color.WHITE
+            val bc = if (rect.bottom < bmp.height - 1) bmp.getPixel((rect.left + rect.right) / 2, rect.bottom + 2) else Color.WHITE
             val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.FILL
                 shader = android.graphics.LinearGradient(rect.left.toFloat(), rect.top.toFloat(),
