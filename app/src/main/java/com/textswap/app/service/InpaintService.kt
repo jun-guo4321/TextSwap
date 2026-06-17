@@ -43,7 +43,7 @@ object InpaintService {
     // ── AI: ONNX Runtime + LaMa ──
 
     private fun aiInpaint(bitmap: Bitmap, rect: Rect): Bitmap {
-        val env = com.microsoft.onnxruntime.OrtEnvironment.getEnvironment()
+        val env = ai.onnxruntime.OrtEnvironment.getEnvironment()
         val session = env.createSession(
             TextSwapApp.instance.assets.openFd("models/lama_tiny.onnx").use { fd ->
                 val buffer = java.nio.ByteBuffer.allocateDirect(fd.length.toInt())
@@ -53,7 +53,8 @@ object InpaintService {
                 }
                 buffer.rewind()
                 buffer
-            }
+            },
+            ai.onnxruntime.OrtSession.SessionOptions()
         )
 
         // 裁剪区域（含上下文）
@@ -89,15 +90,15 @@ object InpaintService {
             for (x in rx until min(rx + rw, inSize))
                 maskData[y * inSize + x] = 1f
 
-        val imgTensor = com.microsoft.onnxruntime.OnnxTensor.createTensor(env, imgData,
+        val imgTensor = ai.onnxruntime.OnnxTensor.createTensor(env, imgData,
             longArrayOf(1, 3, inSize.toLong(), inSize.toLong()))
-        val maskTensor = com.microsoft.onnxruntime.OnnxTensor.createTensor(env, maskData,
+        val maskTensor = ai.onnxruntime.OnnxTensor.createTensor(env, maskData,
             longArrayOf(1, 1, inSize.toLong(), inSize.toLong()))
 
         val inputs = mapOf("image" to imgTensor, "mask" to maskTensor)
         val result = session.run(inputs)
         @Suppress("UNCHECKED_CAST")
-        val outRaw = result.getValue("output").value as Array<Array<Array<FloatArray>>>
+        val outRaw = result.get("output").get().getValue() as Array<Array<Array<FloatArray>>>
 
         // 重建输出 bitmap
         val outPx = IntArray(inSize * inSize)
