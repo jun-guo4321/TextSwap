@@ -29,7 +29,7 @@ object TextRenderer {
         val rect = region.boundingBox
 
         // 计算适合区域的文字大小
-        val textSize = calculateFittingTextSize(newText, rect.width(), rect.height(), region.fontSize)
+        val textSize = calculateFittingTextSize(newText, rect.right - rect.left, rect.bottom - rect.top, region.fontSize)
 
         // 绘制阴影（如果有）
         if (region.shadowColor != 0x00000000) {
